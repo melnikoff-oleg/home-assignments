@@ -7,3 +7,4 @@ opencv-python
 pims
 scikit-image
 sortednp
+scipy
