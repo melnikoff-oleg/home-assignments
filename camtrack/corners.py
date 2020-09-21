@@ -56,7 +56,7 @@ def run_optflow_pytramidal(img0, img1, poses, pyramidal_iters=7, eps=1e-2, max_i
                                                poses.astype('float32').reshape((-1, 1, 2)),
                                                None,
                                                **lk_params)
-    return np.empty((0, 2), dtype=np.float32) is new_poses is None else new_poses.reshape((-1, 2))
+    return np.empty((0, 2), dtype=np.float32) if new_poses is None else new_poses.reshape((-1, 2))
 
 
 def get_eigvals_interpr2d(img, corner_size=7):
