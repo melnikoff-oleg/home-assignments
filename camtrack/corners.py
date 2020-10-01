@@ -78,48 +78,43 @@ def detect_corners(img, mask, max_corners, quality_level=0.01, block_size=7):
     return corners.reshape((-1, 2))
 
 
-def detect_new_corners_pyramidal(img, mask, pyramidal_iters=3, max_corners=500, quality_level=0.05):
+def detect_new_corners_pyramidal(img, prev_corners, pyramidal_iters=3, max_corners=5000, quality_level=0.05):
     """Find corners on 'img' using 'mask' using pyramidal method.
 
     Returns:
          List of all corner coordinates;
          Size of each corner."""
     compressed_img = img.copy()
-    corner_mask = mask.copy()
+    all_corners = prev_corners.copy()
     k = 1
-    all_corners, sizes = np.empty(shape=(0, 2), dtype=float), \
+    new_corners, sizes = np.empty(shape=(0, 2), dtype=float), \
                          np.empty(shape=(0,), dtype=float)
     for _ in range(pyramidal_iters):
-        corners = detect_corners(compressed_img, corner_mask, max_corners=max_corners, quality_level=quality_level)
-        max_corners -= corners.shape[0]
+        mask = get_corners_mask(all_corners, img.shape)[::k, ::k]
+        corners = detect_corners(compressed_img, mask, max_corners=max_corners, quality_level=quality_level)
         all_corners = np.concatenate((all_corners, corners * k), axis=0)
-        sizes = np.concatenate((sizes, np.repeat(3 * k, corners.shape[0])), axis=0)
+        new_corners = np.concatenate((new_corners, corners * k), axis=0)
+        sizes = np.concatenate((sizes, np.repeat(4 * k, corners.shape[0])), axis=0)
         compressed_img = cv2.pyrDown(compressed_img)
-        corner_mask = corner_mask[::2, ::2]
         k *= 2
-    return all_corners, sizes
+    return new_corners, sizes
 
 
-def get_corners_mask(corners, corner_sizes, shape):
+def get_corners_mask(corners, shape):
     # Returns a mask with all corners from 'corners'. 'shape' is a shape of output mask.
     corners_mask = np.full(shape, 255).astype(np.uint8)
     for i in range(len(corners)):
         corner = corners[i].astype(np.int)
-        size = corner_sizes[i]
-        corners_mask = cv2.circle(corners_mask, tuple(corner), int(size), color=0, thickness=-1)
+        corners_mask = cv2.circle(corners_mask, tuple(corner), 7, color=0, thickness=-1)
     return corners_mask
 
 
 class CornersTracker:
-    def __init__(self, img0, max_corners=1000):
-        self.max_corners = max_corners
-
+    def __init__(self, img0):
         # Initialize corner properties
         self.img0 = img0
         self.corners, self.corner_sizes = \
-            detect_new_corners_pyramidal(img0,
-                                         get_corners_mask(np.array([]), np.array([]), img0.shape),
-                                         max_corners=max_corners)
+            detect_new_corners_pyramidal(img0, np.empty(shape=(0, 2), dtype=float))
         self.corner_ids = np.arange(self.corners.shape[0])
         self.last_id = self.corners.shape[0] + 1
 
@@ -134,9 +129,7 @@ class CornersTracker:
 
         # Find new corners.
         new_corners, new_corner_sizes = \
-            detect_new_corners_pyramidal(img1,
-                                         get_corners_mask(prev_corners, prev_corner_sizes, img1.shape),
-                                         max_corners=self.max_corners)
+            detect_new_corners_pyramidal(img1, prev_corners)
         new_ids = np.arange(self.last_id, self.last_id + new_corners.shape[0])
 
         # Concatenate old corners with new ones.
