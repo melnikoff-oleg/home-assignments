@@ -63,13 +63,13 @@ def run_optflow_pytramidal(img0, img1, poses, pyramidal_iters=7, eps=1e-2, max_i
     return new_poses.reshape((-1, 2)), st.reshape((-1,))
 
 
-def detect_corners(img, mask, max_corners, quality_level=0.01, block_size=7):
+def detect_corners(img, mask, max_corners, min_dist, quality_level=0.01, block_size=7):
     # Finds corners on image 'img' with 'mask'. Returns list of corners coordinates.
     corners = cv2.goodFeaturesToTrack(
         img,
         maxCorners=max_corners,
         qualityLevel=quality_level,
-        minDistance=1,
+        minDistance=min_dist,
         mask=mask,
         useHarrisDetector=False,
         blockSize=block_size)
@@ -78,8 +78,8 @@ def detect_corners(img, mask, max_corners, quality_level=0.01, block_size=7):
     return corners.reshape((-1, 2))
 
 
-def detect_new_corners_pyramidal(img, prev_corners, pyramidal_iters=3, max_corners=5000, quality_level=0.05):
-    """Find corners on 'img' using 'mask' using pyramidal method.
+def detect_new_corners_pyramidal(img, prev_corners, min_dist, pyramidal_iters=3, max_corners=1000, quality_level=0.02):
+    """Find corners on 'img' using pyramidal method.
 
     Returns:
          List of all corner coordinates;
@@ -90,37 +90,59 @@ def detect_new_corners_pyramidal(img, prev_corners, pyramidal_iters=3, max_corne
     new_corners, sizes = np.empty(shape=(0, 2), dtype=float), \
                          np.empty(shape=(0,), dtype=float)
     for _ in range(pyramidal_iters):
-        mask = get_corners_mask(all_corners, img.shape)[::k, ::k]
-        corners = detect_corners(compressed_img, mask, max_corners=max_corners, quality_level=quality_level)
+        mask = get_corners_mask(all_corners, img.shape, radius=min_dist)[::k, ::k]
+        corners = detect_corners(compressed_img,
+                                 mask,
+                                 min_dist=min_dist,
+                                 max_corners=max_corners,
+                                 quality_level=quality_level)
         all_corners = np.concatenate((all_corners, corners * k), axis=0)
         new_corners = np.concatenate((new_corners, corners * k), axis=0)
-        sizes = np.concatenate((sizes, np.repeat(4 * k, corners.shape[0])), axis=0)
+        sizes = np.concatenate((sizes, np.repeat((img.shape[0] + img.shape[1]) // 500 * k, corners.shape[0])), axis=0)
         compressed_img = cv2.pyrDown(compressed_img)
         k *= 2
     return new_corners, sizes
 
 
-def get_corners_mask(corners, shape):
+def get_corners_mask(corners, shape, radius):
     # Returns a mask with all corners from 'corners'. 'shape' is a shape of output mask.
     corners_mask = np.full(shape, 255).astype(np.uint8)
     for i in range(len(corners)):
         corner = corners[i].astype(np.int)
-        corners_mask = cv2.circle(corners_mask, tuple(corner), 7, color=0, thickness=-1)
+        corners_mask = cv2.circle(corners_mask, tuple(corner), radius, color=0, thickness=-1)
     return corners_mask
 
 
+def filter_too_close_corners(corners, st, min_dist):
+    """Detects the corners which are too close to each other. Only checks corners[st == 1].
+    Returns 'new_st' array such that corners[new_st == 1] is a subset of corners[st == 1]
+    and the minimum distance between corners is at least 'min_dist'."""
+
+    added_corners = np.empty((0, 2), dtype=np.float32)
+    new_st = st.copy()
+    for i, corner in enumerate(corners):
+        if np.all(np.linalg.norm(added_corners - corner, axis=1) >= min_dist):
+            added_corners = np.append(added_corners, corner.reshape((1, -1)), axis=0)
+        else:
+            new_st[i] = 0
+    return new_st
+
+
 class CornersTracker:
-    def __init__(self, img0):
+    def __init__(self, img0, min_dist):
+        self.min_dist = min_dist
+
         # Initialize corner properties
         self.img0 = img0
         self.corners, self.corner_sizes = \
-            detect_new_corners_pyramidal(img0, np.empty(shape=(0, 2), dtype=float))
+            detect_new_corners_pyramidal(img0, np.empty(shape=(0, 2), dtype=float), self.min_dist)
         self.corner_ids = np.arange(self.corners.shape[0])
         self.last_id = self.corners.shape[0] + 1
 
     def find_and_track_corners(self, img1):
         # Track previous corners and delete bad ones.
         prev_corners, st = run_optflow_pytramidal(self.img0, img1, self.corners)
+        st = filter_too_close_corners(prev_corners, st, self.min_dist / 2)
 
         # Update bad track numbers.
         prev_corners = prev_corners[st == 1]
@@ -129,7 +151,7 @@ class CornersTracker:
 
         # Find new corners.
         new_corners, new_corner_sizes = \
-            detect_new_corners_pyramidal(img1, prev_corners)
+            detect_new_corners_pyramidal(img1, prev_corners, self.min_dist)
         new_ids = np.arange(self.last_id, self.last_id + new_corners.shape[0])
 
         # Concatenate old corners with new ones.
@@ -146,7 +168,8 @@ class CornersTracker:
 
 def _build_impl(frame_sequence: pims.FramesSequence,
                 builder: _CornerStorageBuilder) -> None:
-    tracker = CornersTracker(frame_sequence[0])
+    tracker = CornersTracker(frame_sequence[0],
+                             (frame_sequence[0].shape[0] + frame_sequence[0].shape[1]) // 300)
     builder.set_corners_at_frame(0, tracker.get_frame_corners())
     for frame, image_1 in enumerate(frame_sequence[1:], 1):
         tracker.find_and_track_corners(image_1)
