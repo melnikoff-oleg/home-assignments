@@ -156,7 +156,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
         # Retriangulate
         for j in range(len(point_cloud_builder.ids)):
             corner_id = point_cloud_builder.ids[j][0]
-            if time_since_last_retriangulation[corner_id] < 30:
+            if time_since_last_retriangulation[corner_id] < len(rgb_sequence) / 3:
                 continue
             new_pos = retriangulate(corner_id)
             if new_pos is not None:
