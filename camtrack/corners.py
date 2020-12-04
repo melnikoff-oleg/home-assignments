@@ -63,7 +63,7 @@ def run_optflow_pytramidal(img0, img1, poses, pyramidal_iters=7, eps=1e-2, max_i
     return new_poses.reshape((-1, 2)), st.reshape((-1,))
 
 
-def detect_corners(img, mask, max_corners, min_dist, quality_level=0.01, block_size=7):
+def detect_corners(img, mask, max_corners, min_dist, quality_level=0.003, block_size=7):
     # Finds corners on image 'img' with 'mask'. Returns list of corners coordinates.
     corners = cv2.goodFeaturesToTrack(
         img,
@@ -78,7 +78,7 @@ def detect_corners(img, mask, max_corners, min_dist, quality_level=0.01, block_s
     return corners.reshape((-1, 2))
 
 
-def detect_new_corners_pyramidal(img, prev_corners, min_dist, pyramidal_iters=3, max_corners=1000, quality_level=0.02):
+def detect_new_corners_pyramidal(img, prev_corners, min_dist, pyramidal_iters=3, max_corners=1000, quality_level=0.003):
     """Find corners on 'img' using pyramidal method.
 
     Returns:
