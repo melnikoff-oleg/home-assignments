@@ -58,7 +58,7 @@ def read_config(config_path):
         config[name] = TestInfo(**{
             k: path.join(root, v) if isinstance(v, str) else v
             for k, v in info.items()
-        })
+        }, initial_frames=None)
     return config
 
 
